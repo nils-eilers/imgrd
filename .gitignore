@@ -1,0 +1,7 @@
+*.o
+*.lst
+*.map
+*.lbl
+i
+imgrd
+imgrd.d64
