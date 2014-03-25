@@ -66,7 +66,7 @@ chunkok:
 	lda #0
 	sta ST				; ST=0
 	jsr LISTN			; LISTEN
-	lda #15
+	lda #$6F
 	sta SA
 	jsr SECND			; send secondary address
 	lda #'M'
@@ -78,6 +78,7 @@ chunkok:
 	lda ptr				; LSB address
 	jsr CIOUT
 	lda #$11			; MSB $11xx
+	jsr CIOUT
 	
 	lda #<__FLOPPY_SIZE__		; number of bytes left to copy
 	sec
