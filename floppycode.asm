@@ -22,13 +22,6 @@ error:	.byte 0
 spare:	.byte 0
 spare2:	.byte 0
 
-; -------------------------
-; TODO: remove debug code!
-	lda #$81
-	sta error
-	rts
-; -------------------------
-
 	lda trk		; start with M-E $1106
 	sta track
 	lda sect

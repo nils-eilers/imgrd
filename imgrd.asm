@@ -7,71 +7,100 @@
 	.include "petscii.inc"
 
 	.import LISTN, TALK, SECND, ACPTR, UNTLK, UNLSN, OPEN, CLOSE
-	.import CLRCH
-	.import CIOUT, READY
+	.import CLRCH, SCNT, SETT, CHKIN, CHKOUT, BASIN
+	.import CIOUT, READY, STOPEQ
 	.import SPACE, SPAC2, INTOUT, STROUTZ, CRLF, BSOUT
 	.import HEXOUT
 
 	.importzp ST, DN, FNADR, FNLEN, LFN, SA
+	.importzp MOVSRC
 
 	.import upload_drivecode, get_ds, print_ds, send_cmd
+	.import SETNAM, SETLFS
 
 	.export main
 
-	ptr = $3C                         ; pointer to command string
-	ptr2 = $3E
+	ptr	:= $3C			; pointer to command string
+	errptr	:= $3E			; pointer to error table
+
+	CH_BUF	= 3			; secondary address for sector buffer
+	CH_IMG	= 9			; secondary address for image file
 	
 
 ;--------------------------------------------------------------------------
 ; MAIN
 ;--------------------------------------------------------------------------
+
 main:
 	lday hello			; say hello
 	jsr STROUTZ
+; TODO: ask user for settings
 	jsr print_settings
 
-	lda sdrive                      ; INIT source drive
+	lda sdrive			; INIT source drive
 	ldy sunit
 	jsr init_drive
 	jsr get_ds
 	bcc @ok
 	jsr_rts print_ds		; INIT failed
+@ok:
+	lday errbuf			; clear error table
+	stay ptr
+	ldy #0
+clrlp:	tya
+	sta (ptr),y
+	inc ptr
+	bne @cc
+	inc ptr+1
+@cc:	lda ptr+1
+	cmp #>errbuf_end
+	bne clrlp
+	lda ptr
+	cmp #<errbuf_end
+	bne clrlp
 
-@ok:    
 	lda sunit
 	sta DN
-	jsr upload_drivecode            ; upload drivecode
+	jsr upload_drivecode		; upload drivecode
 
-;        jsr autodetect_sides
+;	jsr autodetect_sides
 
-	ldx #3                          ; open data buffer
-	stx SA                          ; OPEN 3, sunit, 3, "#1"
-	stx LFN
-	dex
-	stx FNLEN
-	lda #<str_ch
-	sta FNADR
-	lda #>str_ch
-	sta FNADR+1
-	lda #'1'
-	sta str_ch+1
+	lda #str_ch1_end - str_ch1	; open data buffer
+	ldxy str_ch1			; OPEN CH_BUF, sunit, CH_BUF, "#1"
+	jsr SETNAM
+	lda #CH_BUF
+	ldx sunit
+	tay
+	jsr SETLFS
 	jsr OPEN
 
-					
-	lda #9                          ; open image output file
-	sta LFN                          ; OPEN 9, tunit, 9, imagename
-	sta SA
-	lda tunit
-	sta DN
-	; TODO: build imagename from user input and tdrive
-	; tdrive:imagename,w
-	lda strlen_imagename
-	sta FNLEN
-	lda #<str_imagename
-	sta FNADR
-	lda #>str_imagename
-	sta FNADR+1
+	lda tdrive			; patch drive number
+	clc
+	adc #'0'
+	sta str_imagename
+
+
+	jsr set_d80			; default to .d80
+	lda sides
+	cmp #2
+	bne @othet
+	jsr set_d82			; two sides ==> .d82
+	bcc @d8x			; branch always
+@othet: lda tracks
+	cmp #77
+	bcs @d8x			; if tracks < 77, it must be .d64
+	jsr set_d64
+@d8x:
+					; open image output file
+	lda #str_imagename_end - str_imagename
+	ldxy str_imagename
+	jsr SETNAM
+	lda #CH_IMG
+	ldx tunit
+	tay
+	jsr SETLFS
 	jsr OPEN
+
 	jsr get_ds
 	bcc @okopen
 	lday msg_image_open_failed
@@ -80,39 +109,217 @@ main:
 	jmp exit
 @okopen:
 
+	lday 0
+	stay errcnt
+	lday errbuf
+	stay errptr
+
+	lda #1
+	sta rd_trk
+	lda #0
+	sta rd_sec
+
+copy_track:
+	jsr calc_blks
+	jsr CRLF
+	ldx rd_trk
+	lda #0
+	jsr INTOUT
+	jsr SPACE
+
+next_blk:
+	jsr copy_block			; copy block from disk to image file
+	ldy #0
+	sta (errptr),y			; store error code in table
+	inc errptr
+	bne @nocarry
+	inc errptr+1
+@nocarry:
+	cmp #1				; block read successfully?
+	beq @rdsuccess
+	tax
+	lda #0
+	jsr INTOUT			; print FDC error code
+	inc errcnt			; increment error counter
+	bne @nocarry2
+	inc errcnt+1
+@nocarry2:
+	bne @check_trk_complete
+
+@rdsuccess:
+	lda #'.'
+	jsr BSOUT
+
+@check_trk_complete:
+	inc rd_sec
+	lda rd_sec
+	cmp sectors
+	beq @secdone
+	bne next_blk
+
+@secdone:
+	lda #0
+	sta rd_sec
+	lda rd_trk
+	cmp tracks
+	beq image_complete
+	inc rd_trk
+	bne copy_track
+
+image_complete:
+
+	jsr CRLF
+	jsr CRLF
+	ldx errcnt
+	lda errcnt+1
+	jsr INTOUT			; print number of bad blocks
+	lda #'S'
+	sta msg_bb_plural
+	lda errcnt
+	cmp #1
+	bne plural
+	lda errcnt+1
+	bne plural
+	lda #' '
+	sta msg_bb_plural
+plural:
+	lday msg_bad_blocks
+	jsr STROUTZ
+
+	lda force_errtbl
+	bne @appnd
+	lda errcnt
+	ora errcnt+1
+	beq @exit
+@appnd:	jsr append_errtbl
+@exit:	jmp exit
+
+
+;--------------------------------------------------------------------------
+; APPEND ERROR TABLE TO IMAGE FILE
+;--------------------------------------------------------------------------
+append_errtbl:
+	lday msg_appending
+	jsr STROUTZ
+
+	ldx #CH_IMG
+	jsr CHKOUT
+
+	lday errbuf
+	stay ptr
+
+@loop:	ldy #0
+	lda (ptr),y
+	jsr BSOUT
+	inc ptr
+	bne @cc
+	inc ptr+1
+@cc:	lda ptr+1
+	cmp errbuf_top+1
+	bne @loop
+	lda ptr
+	cmp errbuf_top
+	bne @loop
+
+	jsr CLRCH
+	lday msg_ok
+	jsr_rts STROUTZ
+	
+
+;--------------------------------------------------------------------------
+; COPY BLOCK
+;--------------------------------------------------------------------------
+copy_block:
+	jsr read_block			; read block in floppy buffer
+	pha				; save FDC error code
+
+	lday cmd_bp			; copy block from floppy buffer	
+	jsr send_cmd			; to RAM buffer	
+	ldx #CH_BUF
+	jsr CHKIN
+	lday blkbuf
+	stay ptr
+
+@rd_blk:
+	jsr check_abort
+	jsr BASIN
+	ldy #0
+	sta (ptr),y
+	inc ptr
+	bne @rd_blk
+	jsr CLRCH
+
+	ldx #CH_IMG			; copy block from RAM buffer
+	jsr CHKOUT			; to image file
+
+@wr_blk:
+	jsr check_abort
+	ldy #0
+	lda (ptr),y
+	jsr BSOUT
+	inc ptr
+	bne @wr_blk
+	jsr CLRCH
+	pla				; restore FDC error code
+	rts
+
+
+;--------------------------------------------------------------------------
+; ABORT
+;--------------------------------------------------------------------------
+check_abort:
+	jsr STOPEQ
+	beq abort
+	rts
+	
+abort:	lday msg_aborted
+	jsr STROUTZ
+
+	lda keep_partial		; scratch partial image file?
+	bne keep_partial_image
+	lda tunit
+	sta DN
+	lda imageoptions
+	pha
+	lda #0
+	sta imageoptions		; zero terminate file name
+	lday str_scratch
+	jsr send_cmd
+	pla
+	sta imageoptions		; restore option string
+keep_partial_image:
+	; fall through
 ;--------------------------------------------------------------------------
 ; CLOSE FILES AND EXIT
 ;--------------------------------------------------------------------------
 exit:
-	lda #9				; close image file
+	lda #CH_IMG			; close image file
 	sta LFN
 	jsr CLOSE
-	lda #3				; close data buffer
+	lda #CH_BUF			; close data buffer
 	sta LFN
 	jsr CLOSE
 
 	jmp READY
 
+
 ;--------------------------------------------------------------------------
-; AUTO DETECT SIDES IF SIDES=0 AND FORMAT=80
+; AUTO DETECT SIDES
 ;--------------------------------------------------------------------------
 autodetect_sides:        
 	lda sides			; autodetect sides?
-	bne no_autodetect
-	lda format
-	cmp #80
 	bne no_autodetect
 
 	lday msg_detect_sides
 	jsr STROUTZ
 
-	lda #16				; TODO: 16 --> 116
+	lda #116
 	sta rd_trk
 	lda #0
 	sta rd_sec
 	lda #1
 	sta rd_retr
-	jsr readsector
+	jsr read_block
 
 	ldx #1
 	cmp #1				; FDC code == 1 (OK) ?
@@ -128,10 +335,16 @@ no_autodetect:
 	sta dsksides
 	rts
 
+
 ;--------------------------------------------------------------------------
-; READ SECTOR
+; READ BLOCK				rd_trk	< track number
+;					rd_sec	< sector number
+;					rd_retr	< retries
+;
+;					A	> FDC error code
 ;--------------------------------------------------------------------------
-readsector:
+read_block:
+	jsr check_abort
 	; can't send this with send_cmd because the command contains
 	; a NULL byte
 	lda sunit			; M-W $1100 03 bytes: trk sec retries
@@ -159,23 +372,23 @@ readsector:
 	dey
 	bne @loop
 	jsr UNLSN
-	rts				; TODO: remove breakpoint
 
 	.ifdef DEBUG
-	   jsr get_ds
-	   jsr print_ds
-	   jsr CRLF
+		jsr get_ds
+		jsr print_ds
+		jsr CRLF
 	.endif
 
 	lday cmd_me			; M-E $1106 --> run drive code
 	jsr send_cmd
 
 	.ifdef DEBUG
-	   jsr get_ds
-	   jsr print_ds
-	   jsr CRLF
+		jsr get_ds
+		jsr print_ds
+		jsr CRLF
 	.endif
 
+read_fdc_status:
 	lday cmd_mr			; read job queue status
 	jsr send_cmd
 
@@ -184,14 +397,73 @@ readsector:
 	sta SA
 	jsr SECND
 	jsr ACPTR
-	sta rd_res
+	pha
 	.ifdef DEBUG
 		jsr HEXOUT
-		lda rd_res
 	.endif
 	jsr UNTLK
+	pla
 
 	rts
+
+
+;--------------------------------------------------------------------------
+; CALCULATE BLOCKS PER TRACK
+;--------------------------------------------------------------------------
+calc_blks:
+	jmp (vect_calc_blks)
+
+calc_blks_2031_4040:
+	lda rd_trk
+	cmp #1
+	beq @zone1
+	cmp #18
+	beq @zone2
+	cmp #25
+	beq @zone3
+	cmp #31
+	beq @zone4
+	rts
+@zone1:	lda #21
+	skip2
+@zone2:	lda #19
+	skip2
+@zone3:	lda #18
+	skip2
+@zone4:	lda #17
+	sta sectors
+	rts
+
+calc_blks_8x50:
+	lda rd_trk
+	cmp #1
+	beq @zone1
+	cmp #40
+	beq @zone2
+	cmp #54
+	beq @zone3
+	cmp #65
+	beq @zone4
+	cmp #78
+	beq @zone1
+	cmp #117
+	beq @zone2
+	cmp #131
+	beq @zone3
+	cmp #142
+	beq @zone4
+	rts
+@zone1:	lda #29
+	skip2
+@zone2:	lda #27
+	skip2
+@zone3:	lda #25
+	skip2
+@zone4:	lda #23
+	sta sectors
+	rts
+
+
 
 ;--------------------------------------------------------------------------
 ; INIT DRIVE                            A < DRIVE
@@ -205,14 +477,13 @@ init_drive:
 	lday cmd_ix
 	jsr_rts send_cmd
 
+
 ;--------------------------------------------------------------------------
 ; PRINT SETTINGS
 ;--------------------------------------------------------------------------
 print_settings:
 
 	lday msg_src
-	jsr STROUTZ
-	lday msg_udrv
 	jsr STROUTZ
 	lda #0
 	ldx sunit
@@ -232,8 +503,6 @@ print_settings:
 
 	lday msg_target
 	jsr STROUTZ
-	lday msg_udrv
-	jsr STROUTZ
 	lda #0
 	ldx tunit
 	jsr INTOUT
@@ -251,6 +520,55 @@ print_settings:
 	jsr_rts CRLF
 
 ;--------------------------------------------------------------------------
+; SET DRIVE CONSTANTS
+;--------------------------------------------------------------------------
+set_d64:
+	lda #'6'
+	sta imageext
+	lda #'4'
+	sta imageext+1
+
+	lday calc_blks_2031_4040
+	stay vect_calc_blks
+
+	lday 683
+	bne calc_errbuf_top
+
+
+set_d80:
+	lda #'8'
+	sta imageext
+	lda #'0'
+	sta imageext+1
+
+	lday calc_blks_8x50
+	stay vect_calc_blks
+
+	lday 2083
+	bne calc_errbuf_top
+
+
+set_d82:
+	lda #'8'
+	sta imageext
+	lda #'2'
+	sta imageext+1
+
+	lday calc_blks_8x50
+	stay vect_calc_blks
+
+	lday 4166
+
+calc_errbuf_top:
+	clc
+	adc #<errbuf
+	sta errbuf_top
+	tya
+	adc #>errbuf
+	sta errbuf_top+1
+	rts
+
+;--------------------------------------------------------------------------
 ; STRING CONSTANTS
 ;--------------------------------------------------------------------------
 .rodata
@@ -260,17 +578,22 @@ hello:	.byte CR, CR
 
 msg_src:	.byte "SOURCE ", 0
 msg_target:	.byte "TARGET ", 0
-msg_udrv:	.byte "UNIT/DRIVE:", 0
 msg_image_open_failed:
-		.byte "OPEN IMAGE: ",0
+		.byte "CREATING IMAGE: ",0
 msg_detect_sides:
 		.byte "AUTODETECTING SIDES: ",0
+msg_bad_blocks:	.byte " BAD BLOCK"
+msg_bb_plural:	.byte "S", CR, 0
+msg_aborted:	.byte CR, "ABORTED", CR, 0
+msg_appending:	.byte CR, "APPENDING ERROR TABLE... ",0
+msg_ok:		.byte "OK", CR, 0
 
 str_ok:		.byte "00,"
 
 cmd_bp20:	.byte "B-P 2 0",0
 cmd_me:		.byte "M-E", $06, $11, 0
 cmd_mr:		.byte "M-R", $03, $11, 0
+
 
 ;--------------------------------------------------------------------------
 ; VARIABLES
@@ -281,33 +604,52 @@ sdrive:		.byte 0		; Source drive 0/1
 tunit:		.byte 9		; Target unit address
 tdrive:		.byte 0		; Source drive 0/1
 ilv:		.byte 1		; Interleave
-sides:		.byte 0		; Sides, 0=auto
+sides:		.byte 1		; Sides, 0=auto
 retries:	.byte 15	; Number of retries
-format:		.byte 80
+tracks:		.byte 77	; last track
+sectors:	.byte 29	; number of sectors
+keep_partial:	.byte 1		; keep partial image file on break
+force_errtbl:	.byte 0		; write error table always if non-zero
 
 cmd_ix:		.byte "Ix", 0
 
 cmd_rd_sec:	.byte "M-W"
 		.addr $1100
 		.byte 3
-rd_trk:		.res 1		; track
-rd_sec:		.res 1		; sector
-rd_retr:	.res 1		; retries
+rd_trk:		.byte 39	; track
+rd_sec:		.byte 1		; sector
+rd_retr:	.byte 5		; retries
 
-str_ch:		.byte "#x"
+.assert CH_BUF < 10, error, "CH_BUF > 9"
+cmd_bp:		.byte "B-P ", CH_BUF+'0', " 0", 0
 
-strlen_imagename:
-		.byte 13
-str_imagename:	.byte "0:IMAGE.D80,W"
+str_ch1:	.byte "#1"
+str_ch1_end:
+
+str_scratch:	.byte "S"
+str_imagename:	.byte "0:DISK-"
+imagenumber:	.byte "000.D"
+imageext:	.byte "80"
+imageoptions:	.byte ",W,S"
+str_imagename_end:
+		.byte 0
 
 .bss
-dsksides:	.res 1          ; number of disk sides
-rd_res:		.res 1          ; FDC error code
+dsksides:	.res 1		; number of disk sides
+rd_res:		.res 1		; FDC error code
 saveA:		.res 1
 saveX:		.res 1
 saveY:		.res 1
 
+		.align $100
+blkbuf:		.res 256	; block buffer
+vect_calc_blks:	.res 2		; aligned, not starting at last byte of page
+errcnt:		.res 2		; number of bad blocks
+errbuf:		.res 4166	; error table per block
+errbuf_end:
+errbuf_top:	.res 2		; address of last entry+1
+
 
 ;--------------------------------------------------------------------------
-	.end
+		.end
 

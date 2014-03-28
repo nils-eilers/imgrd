@@ -5,9 +5,9 @@
         .import CLRCH, CIOUT, READY, BSOUT, SPACE, SPAC2, INTOUT, STROUTZ
         .import HEXOUT, CRLF
 
-	.importzp DN, ST, SA
+	.importzp LFN, DN, ST, SA, FNADR, FNLEN
 
-	.export get_ds, print_ds, send_cmd
+	.export get_ds, print_ds, send_cmd, SETNAM, SETLFS
 
         ptr = $3C                         ; pointer to command string
         ptr2 = $3E
@@ -138,6 +138,29 @@ init_drive:
         sta cmd_ix+1
         lday cmd_ix
         jsr_rts send_cmd
+
+
+;--------------------------------------------------------------------------
+; SETLFS				A < LFN logical file number
+;					X < DN	device address
+;					Y < SA	secondary address
+;--------------------------------------------------------------------------
+SETLFS:
+	sta LFN
+	stx DN
+	sty SA
+	rts
+
+;--------------------------------------------------------------------------
+; SETNAM				A < file name length
+;					X < LSB file name pointer
+;					Y < MSB file name pointer
+;--------------------------------------------------------------------------
+SETNAM:
+	sta FNLEN
+	stx FNADR
+	sty FNADR+1
+	rts
 
 
 ;--------------------------------------------------------------------------

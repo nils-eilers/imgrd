@@ -32,8 +32,26 @@
 	.endmacro
 
 ;--------------------------------------------------------------------------
+; LDXY addr -- load immediate 16 bit value lsb to X, msb to Y
+;--------------------------------------------------------------------------
+	.macro ldxy addr
+	.if .paramcount <> 1
+	.error "LDXA requires 16 bit value"
+	.endif
+	ldx #<addr
+	ldy #>addr
+	.endmacro
+
+;--------------------------------------------------------------------------
 ; JSR_RTS: JSR addr followed by RTS --> JMP addr 
 ;--------------------------------------------------------------------------
         .macro jsr_rts addr
         jmp addr
         .endmacro
+
+;--------------------------------------------------------------------------
+; SKIP2 -- skip two bytes of code
+;--------------------------------------------------------------------------
+	.macro skip2
+	.byte $2c	; BIT abs
+	.endmacro
