@@ -8,14 +8,15 @@
 
 	.import LISTN, TALK, SECND, ACPTR, UNTLK, UNLSN, OPEN, CLOSE
 	.import CLRCH, SCNT, SETT, CHKIN, CHKOUT, BASIN
-	.import CIOUT, READY, STOPEQ
-	.import SPACE, SPAC2, INTOUT, STROUTZ, CRLF, BSOUT
-	.import HEXOUT
+	.import CIOUT, READY, STOPEQ, GETIN, STOPR
+	.import SPACE, SPAC2, INTOUT, STROUTZ, CRLF, BSOUT, HEXOUT
 
 	.importzp ST, DN, FNADR, FNLEN, LFN, SA
+	.importzp CURSOR, CURSP, CURAD, BLINK, KEY, CHAR
 	.importzp MOVSRC
 
 	.import upload_drivecode, get_ds, print_ds, send_cmd
+	.import flashget, yesno, flashscreen
 	.import SETNAM, SETLFS
 
 	.export main
@@ -32,11 +33,31 @@
 ;--------------------------------------------------------------------------
 
 main:
-	lday hello			; say hello
+	lday msg_hello			; say hello
 	jsr STROUTZ
-; TODO: ask user for settings
-	jsr print_settings
 
+edit_settings:
+	lday msg_doublesd
+	jsr STROUTZ
+	lday sides
+	jsr yesno
+	bne @ds
+	jsr set_d80
+	jmp @sides
+@ds:	jsr set_d82
+@sides:
+
+	lday msg_kp_part
+	jsr STROUTZ
+	lday keep_partial
+	jsr yesno
+
+	lday msg_frc_errtbl
+	jsr STROUTZ
+	lday force_errtbl
+	jsr yesno
+	
+read_image:
 	lda sdrive			; INIT source drive
 	ldy sunit
 	jsr init_drive
@@ -79,18 +100,6 @@ clrlp:	tya
 	adc #'0'
 	sta str_imagename
 
-
-	jsr set_d80			; default to .d80
-	lda sides
-	cmp #2
-	bne @othet
-	jsr set_d82			; two sides ==> .d82
-	bcc @d8x			; branch always
-@othet: lda tracks
-	cmp #77
-	bcs @d8x			; if tracks < 77, it must be .d64
-	jsr set_d64
-@d8x:
 					; open image output file
 	lda #str_imagename_end - str_imagename
 	ldxy str_imagename
@@ -106,14 +115,13 @@ clrlp:	tya
 	lday msg_image_open_failed
 	jsr STROUTZ
 	jsr print_ds
-	jmp exit
+	jmp abort
 @okopen:
 
 	lday 0
 	stay errcnt
 	lday errbuf
 	stay errptr
-
 	lda #1
 	sta rd_trk
 	lda #0
@@ -192,7 +200,24 @@ plural:
 	ora errcnt+1
 	beq @exit
 @appnd:	jsr append_errtbl
-@exit:	jmp exit
+@exit:	jsr close_files
+
+	lday msg_again
+	jsr STROUTZ
+	lday flg_again
+	jsr yesno
+	beq @anoth
+	jmp read_image
+
+@anoth:	lday msg_another
+	jsr STROUTZ
+	lday flg_another
+	jsr yesno
+	beq @exit2
+	jmp edit_settings
+@exit2:	jmp READY
+
+
 
 
 ;--------------------------------------------------------------------------
@@ -288,19 +313,19 @@ abort:	lday msg_aborted
 	pla
 	sta imageoptions		; restore option string
 keep_partial_image:
-	; fall through
+	jsr close_files
+	jmp READY
+
 ;--------------------------------------------------------------------------
-; CLOSE FILES AND EXIT
+; CLOSE FILES
 ;--------------------------------------------------------------------------
-exit:
+close_files:
 	lda #CH_IMG			; close image file
 	sta LFN
 	jsr CLOSE
 	lda #CH_BUF			; close data buffer
 	sta LFN
-	jsr CLOSE
-
-	jmp READY
+	jsr_rts CLOSE
 
 
 ;--------------------------------------------------------------------------
@@ -528,6 +553,9 @@ set_d64:
 	lda #'4'
 	sta imageext+1
 
+	lda #35
+	sta tracks
+
 	lday calc_blks_2031_4040
 	stay vect_calc_blks
 
@@ -540,6 +568,9 @@ set_d80:
 	sta imageext
 	lda #'0'
 	sta imageext+1
+	
+	lda #77
+	sta tracks
 
 	lday calc_blks_8x50
 	stay vect_calc_blks
@@ -553,6 +584,9 @@ set_d82:
 	sta imageext
 	lda #'2'
 	sta imageext+1
+
+	lda #154
+	sta tracks
 
 	lday calc_blks_8x50
 	stay vect_calc_blks
@@ -573,8 +607,8 @@ calc_errbuf_top:
 ;--------------------------------------------------------------------------
 .rodata
 
-hello:	.byte CR, CR
-		.byte "IMGRD 0.02 PRE-ALPHA", CR
+msg_hello:	.byte CR, CR
+		.byte "IMGRD 0.0401 PRE-ALPHA", CR, 0
 
 msg_src:	.byte "SOURCE ", 0
 msg_target:	.byte "TARGET ", 0
@@ -583,10 +617,16 @@ msg_image_open_failed:
 msg_detect_sides:
 		.byte "AUTODETECTING SIDES: ",0
 msg_bad_blocks:	.byte " BAD BLOCK"
-msg_bb_plural:	.byte "S", CR, 0
+msg_bb_plural:	.byte "S", CR, CR, 0
 msg_aborted:	.byte CR, "ABORTED", CR, 0
 msg_appending:	.byte CR, "APPENDING ERROR TABLE... ",0
 msg_ok:		.byte "OK", CR, 0
+;                      ....:....1....:....2....:....3....:....4
+msg_kp_part:	.byte "KEEP PARTIAL IMAGE FILES  : ", 0
+msg_frc_errtbl:	.byte "APPEND ERROR TABLE ALWAYS : ", 0
+msg_again:	.byte "READ ANOTHER DISK WITH SAME SETTINGS? ", 0
+msg_another:	.byte "EDIT SETTINGS? ", 0
+msg_doublesd:	.byte "COPY DOUBLE SIDE 8250/D82 : ", 0
 
 str_ok:		.byte "00,"
 
@@ -633,6 +673,9 @@ imageext:	.byte "80"
 imageoptions:	.byte ",W,S"
 str_imagename_end:
 		.byte 0
+
+flg_again:	.byte 1
+flg_another:	.byte 1
 
 .bss
 dsksides:	.res 1		; number of disk sides

@@ -27,3 +27,9 @@
 
 	.exportzp MEMUSS	:= $fd	; tape load temps
 
+	.exportzp KEY		:= $9e	; number of characters in keyboard buffer
+	.exportzp CURSOR	:= $a7	; flag: cursor flashing
+	.exportzp BLINK		:= $aa	; flag: cursor on
+	.exportzp CURSP		:= $c6	; 
+	.exportzp CURAD		:= $c4	;
+	.exportzp CHAR		:= $a9	;
