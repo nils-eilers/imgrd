@@ -32,6 +32,17 @@
 	.endmacro
 
 ;--------------------------------------------------------------------------
+; STXA addr -- store 16 bit value X (lsb) to addr, A (msb) to addr+1
+;--------------------------------------------------------------------------
+	.macro stxa addr
+	.if .paramcount <> 1
+	.error "STXA requires 16 bit value"
+	.endif
+	stx addr
+	sta addr+1
+	.endmacro
+
+;--------------------------------------------------------------------------
 ; LDXY addr -- load immediate 16 bit value lsb to X, msb to Y
 ;--------------------------------------------------------------------------
 	.macro ldxy addr

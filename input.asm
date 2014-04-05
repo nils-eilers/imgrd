@@ -1,5 +1,6 @@
-	.import GETIN, BSOUT, CRLF, STOPR
+	.import GETIN, BSOUT, CRLF, READY
 	.importzp KEY, CURSOR, BLINK, CHAR, CURSP, CURAD
+	.import user_abort
 
 	.export flashget, flashscreen, wrongkey, yesno
 
@@ -13,7 +14,6 @@
 ; FLASHGET: Wait for key with flashing cursor > A
 ;--------------------------------------------------------------------------
 flashget:
-	jsr STOPR
 	lda KEY
 	sta CURSOR
 	beq flashget
@@ -74,6 +74,7 @@ dl10:	inx
 ; YESNO
 ; [in]	A (lsb), Y(msb) ptr to flag
 ; [out]	flag in A
+; 	STOP aborts
 ;--------------------------------------------------------------------------
 yesno:
 	stay ptr
@@ -87,7 +88,10 @@ yn30:	jsr BSOUT
 	lda #CURLF
 	jsr BSOUT
 yn35:	jsr flashget
-	cmp #'Y'
+	cmp #STOP
+	bne yn37
+	jmp user_abort
+yn37:	cmp #'Y'
 	beq yn40
 	cmp #'N'
 	beq yn50

@@ -8,24 +8,29 @@
 
 	.import LISTN, TALK, SECND, ACPTR, UNTLK, UNLSN, OPEN, CLOSE
 	.import CLRCH, SCNT, SETT, CHKIN, CHKOUT, BASIN
-	.import CIOUT, READY, STOPEQ, GETIN, STOPR
+	.import CIOUT, READY, STOPEQ, GETIN, STOPR, STROUT
 	.import SPACE, SPAC2, INTOUT, STROUTZ, CRLF, BSOUT, HEXOUT
 
 	.importzp ST, DN, FNADR, FNLEN, LFN, SA
 	.importzp CURSOR, CURSP, CURAD, BLINK, KEY, CHAR
-	.importzp MOVSRC
+	.importzp MOVSRC, STRADR
 
 	.import upload_drivecode, get_ds, print_ds, send_cmd
-	.import flashget, yesno, flashscreen
+	.import flashget, yesno, flashscreen, digit_thousands, itoa
+	.import myintout
 	.import SETNAM, SETLFS
 
-	.export main
+	.export main, user_abort
 
 	ptr	:= $3C			; pointer to command string
 	errptr	:= $3E			; pointer to error table
 
 	CH_BUF	= 3			; secondary address for sector buffer
 	CH_IMG	= 9			; secondary address for image file
+
+	ERROR_OK		= 0
+	ERROR_FILE_NOT_FOUND 	= 62
+	ERROR_FILE_EXISTS	= 63
 	
 
 ;--------------------------------------------------------------------------
@@ -33,6 +38,7 @@
 ;--------------------------------------------------------------------------
 
 main:
+
 	lday msg_hello			; say hello
 	jsr STROUTZ
 
@@ -41,11 +47,7 @@ edit_settings:
 	jsr STROUTZ
 	lday sides
 	jsr yesno
-	bne @ds
-	jsr set_d80
-	jmp @sides
-@ds:	jsr set_d82
-@sides:
+	jsr set_dxx_parm
 
 	lday msg_kp_part
 	jsr STROUTZ
@@ -101,6 +103,9 @@ clrlp:	tya
 	sta str_imagename
 
 					; open image output file
+	jsr get_image_number
+	jsr ax2fn			; patch image number
+	jsr set_dxx_parm		; patch image extension
 	lda #str_imagename_end - str_imagename
 	ldxy str_imagename
 	jsr SETNAM
@@ -111,12 +116,25 @@ clrlp:	tya
 	jsr OPEN
 
 	jsr get_ds
-	bcc @okopen
-	lday msg_image_open_failed
-	jsr STROUTZ
+	bcc image_open_ok
+	jsr prnfn
+	lda #':'
+	jsr BSOUT
+	jsr SPACE
 	jsr print_ds
 	jmp abort
-@okopen:
+
+ax2fn:					; patch image number AX into filename
+	jsr itoa
+	ldx #3
+fn10:	lda digit_thousands,x
+	sta imagenumber,x
+	dex
+	bpl fn10
+	rts
+
+
+image_open_ok:
 
 	lday 0
 	stay errcnt
@@ -126,6 +144,8 @@ clrlp:	tya
 	sta rd_trk
 	lda #0
 	sta rd_sec
+
+;	jmp image_complete		; FIXME: skips reading
 
 copy_track:
 	jsr calc_blks
@@ -218,7 +238,142 @@ plural:
 @exit2:	jmp READY
 
 
+;--------------------------------------------------------------------------
+; GET IMAGE NUMBER
+;--------------------------------------------------------------------------
 
+gin80:	lday msg_ok
+	jsr STROUTZ
+	ldx imghi
+	lda imghi+1
+	rts
+
+get_image_number:			; determine unused disk image number
+	lday msg_gin
+	jsr STROUTZ
+	lda #'.'
+	jsr BSOUT
+	ldxa 1
+	stxa imglo
+	stxa imghi
+	stxa imgno
+	jsr check_image_number
+	bne gin80
+	lda #'.'
+	jsr BSOUT
+	ldxa 9999
+	stxa imghi
+	jsr check_image_number
+	beq gin70
+
+gin10:	lda #'.'
+	jsr BSOUT
+
+	sec
+	lda imghi
+	sbc imglo
+	sta delta
+	tax
+	lda imghi+1
+	sbc imglo+1
+	sta delta+1
+	bne gin20
+	cpx #1
+	beq gin80
+
+gin20:
+	lsr delta+1
+	ror delta
+	clc
+	lda delta
+	adc imglo
+	sta imgno
+	tax
+	lda delta+1
+	adc imglo+1
+	sta imgno+1
+	jsr check_image_number
+	beq gin30			; branch if file exists
+	lda imgno
+	sta imghi
+	lda imgno+1
+	sta imghi+1
+	jmp gin10
+gin30:	lda imgno
+	sta imglo
+	lda imgno+1
+	sta imglo+1
+	jmp gin10
+
+gin70:	lday msg_gin_failed
+	jsr STROUTZ
+	jmp abort
+
+
+.bss
+imgno:	.res 2
+imglo:	.res 2
+imghi:	.res 2
+delta:	.res 2
+.code
+	
+
+
+
+;--------------------------------------------------------------------------
+; Does file disk-XXXX* exist? 
+; XXXX gets replaced by the integer stored in XA
+; returns status channel error code in A
+;--------------------------------------------------------------------------
+check_image_number:
+	jsr ax2fn
+	lda imagedot
+	pha
+	lda #'*'
+	sta imagedot
+	lda #imagedot - str_imagename + 1
+	ldxy str_imagename
+	jsr SETNAM
+	lda #CH_IMG
+	ldx tunit
+	tay
+	jsr SETLFS
+	jsr OPEN
+	pla
+	sta imagedot
+	jsr get_ds
+	pha
+	lda #CH_IMG
+	sta LFN
+	jsr CLOSE
+	pla
+	rts
+
+
+;--------------------------------------------------------------------------
+; PRNFN: print file name (without options)
+;--------------------------------------------------------------------------
+prnfn:
+	ldx DN
+	lda #0
+	jsr myintout
+	lda #'/'
+	jsr BSOUT
+	lda #<str_imagename
+	sta STRADR
+	lda #>str_imagename
+	sta STRADR+1
+	ldy #0
+pfn10:	lda (STRADR),y
+	beq pfn20
+	cmp #','
+	beq pfn20
+	iny
+	bne pfn10
+pfn20:	tya
+	tax
+	jsr_rts STROUT
+	
 
 ;--------------------------------------------------------------------------
 ; APPEND ERROR TABLE TO IMAGE FILE
@@ -294,11 +449,14 @@ copy_block:
 ;--------------------------------------------------------------------------
 check_abort:
 	jsr STOPEQ
-	beq abort
+	beq user_abort
 	rts
 	
-abort:	lday msg_aborted
+user_abort:
+	lday msg_aborted
 	jsr STROUTZ
+
+abort:
 
 	lda keep_partial		; scratch partial image file?
 	bne keep_partial_image
@@ -602,6 +760,13 @@ calc_errbuf_top:
 	sta errbuf_top+1
 	rts
 
+set_dxx_parm:
+	lda sides
+	bne @d82
+	jmp set_d80
+@d82:	jmp set_d82
+
+
 ;--------------------------------------------------------------------------
 ; STRING CONSTANTS
 ;--------------------------------------------------------------------------
@@ -612,8 +777,6 @@ msg_hello:	.byte CR, CR
 
 msg_src:	.byte "SOURCE ", 0
 msg_target:	.byte "TARGET ", 0
-msg_image_open_failed:
-		.byte "CREATING IMAGE: ",0
 msg_detect_sides:
 		.byte "AUTODETECTING SIDES: ",0
 msg_bad_blocks:	.byte " BAD BLOCK"
@@ -627,6 +790,8 @@ msg_frc_errtbl:	.byte "APPEND ERROR TABLE ALWAYS : ", 0
 msg_again:	.byte "READ ANOTHER DISK WITH SAME SETTINGS? ", 0
 msg_another:	.byte "EDIT SETTINGS? ", 0
 msg_doublesd:	.byte "COPY DOUBLE SIDE 8250/D82 : ", 0
+msg_gin:	.byte "SCANNING FILENAMES", 0
+msg_gin_failed:	.byte "UNABLE TO DETERMINE IMAGE NAME", CR, 0
 
 str_ok:		.byte "00,"
 
@@ -668,7 +833,8 @@ str_ch1_end:
 
 str_scratch:	.byte "S"
 str_imagename:	.byte "0:DISK-"
-imagenumber:	.byte "000.D"
+imagenumber:	.byte "0000"
+imagedot:	.byte ".D"
 imageext:	.byte "80"
 imageoptions:	.byte ",W,S"
 str_imagename_end:

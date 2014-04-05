@@ -4,6 +4,7 @@
         .import LISTN, TALK, SECND, ACPTR, UNTLK, UNLSN, OPEN, CLOSE
         .import CLRCH, CIOUT, READY, BSOUT, SPACE, SPAC2, INTOUT, STROUTZ
         .import HEXOUT, CRLF
+	.import mul10
 
 	.importzp LFN, DN, ST, SA, FNADR, FNLEN
 
@@ -51,36 +52,59 @@ nextchar:
         stx ptr
         bne nextchar                   ; branch always
 
+dev_not_pr:
+        ; TODO: copy "device not present" to bufds
+        jsr UNTLK
+	brk
+
 done:
         lda #0
         sta bufds,X                     ; zero terminate string
         jsr UNTLK
-
-; Quick test for "00,"
-
-        ldx #2
-cmploop:
-        lda bufds,X
-        cmp str_ok,X
-        bne err_exit
-        dex
-        bpl cmploop
-
-        lda #0                          ; 00, OK
-        clc                             ; indicate OK
-        rts
-
-dev_not_pr:
-        ; TODO: copy "device not present" to bufds
-        jsr UNTLK
-
-err_exit:
-        ; TODO: atoi(bufds) -> A
-        lda #1
-        sec                             ; indicate error
-        rts
-
 .endproc
+	; fall through
+	;
+	; convert unsigned ASCII integer to A
+	; ignores leading zeroes
+	; expects only digits and ',' !
+	; 
+dsatoi:
+	ldx #0
+	stx tmpds
+
+dsa10:	lda bufds,x
+	cmp #'0'			; ignore leading zeroes
+	bne dsa20
+	inx
+	bne dsa10
+
+dsa20:	cmp #','			; abort on ','
+	beq dsa80
+	pha
+	lda tmpds			; multiply last digit by 10
+	jsr mul10
+	sta tmpds
+	pla
+	sec
+	sbc #'0'
+	clc
+	adc tmpds			; add current digit
+	sta tmpds
+	inx
+	lda bufds,x
+	bne dsa20			; branch always
+
+dsa80:	clc				; indicate 00,OK
+	lda tmpds
+	bne dsa85
+	rts
+dsa85:	sec                             ; indicate error
+        rts
+
+.bss
+tmpds:	.res 1
+.code
+
 
 
 ;--------------------------------------------------------------------------
@@ -168,7 +192,7 @@ SETNAM:
 ;--------------------------------------------------------------------------
 .rodata
 
-str_ok:         .byte "00,"
+
 
 ;--------------------------------------------------------------------------
 ; VARIABLES
