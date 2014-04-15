@@ -15,15 +15,20 @@
 	.importzp CURSOR, CURSP, CURAD, BLINK, KEY, CHAR
 	.importzp MOVSRC, STRADR
 
+	.importzp ptr, errptr
+
 	.import upload_drivecode, get_ds, print_ds, send_cmd
 	.import flashget, yesno, flashscreen, digit_thousands, itoa
-	.import myintout
+	.import myintout, imgparmvect, waitkey
 	.import SETNAM, SETLFS
 
 	.export main, user_abort
+	.export set_d64, set_d80, set_d82, autodetect_sides
 
-	ptr	:= $3C			; pointer to command string
-	errptr	:= $3E			; pointer to error table
+	; menu settings
+	.import menu
+	.export sunit, sdrive, tunit, tdrive, retries, autoinc
+	.export keep_partial, force_errtbl, bamonly, useflpcde
 
 	CH_BUF	= 3			; secondary address for sector buffer
 	CH_IMG	= 9			; secondary address for image file
@@ -38,27 +43,10 @@
 ;--------------------------------------------------------------------------
 
 main:
-
-	lday msg_hello			; say hello
+	jsr menu
+	lday msg_start
 	jsr STROUTZ
 
-edit_settings:
-	lday msg_doublesd
-	jsr STROUTZ
-	lday sides
-	jsr yesno
-	jsr set_dxx_parm
-
-	lday msg_kp_part
-	jsr STROUTZ
-	lday keep_partial
-	jsr yesno
-
-	lday msg_frc_errtbl
-	jsr STROUTZ
-	lday force_errtbl
-	jsr yesno
-	
 read_image:
 	lda sdrive			; INIT source drive
 	ldy sunit
@@ -86,7 +74,7 @@ clrlp:	tya
 	sta DN
 	jsr upload_drivecode		; upload drivecode
 
-;	jsr autodetect_sides
+	jsr imgparmvect			; patch extension, set image parms
 
 	lda #str_ch1_end - str_ch1	; open data buffer
 	ldxy str_ch1			; OPEN CH_BUF, sunit, CH_BUF, "#1"
@@ -105,7 +93,6 @@ clrlp:	tya
 					; open image output file
 	jsr get_image_number
 	jsr ax2fn			; patch image number
-	jsr set_dxx_parm		; patch image extension
 	lda #str_imagename_end - str_imagename
 	ldxy str_imagename
 	jsr SETNAM
@@ -135,6 +122,11 @@ fn10:	lda digit_thousands,x
 
 
 image_open_ok:
+
+	lday msg_writing_to
+	jsr STROUTZ
+	jsr prnfn
+	jsr CRLF
 
 	lday 0
 	stay errcnt
@@ -234,7 +226,7 @@ plural:
 	lday flg_another
 	jsr yesno
 	beq @exit2
-	jmp edit_settings
+	jmp menu
 @exit2:	jmp READY
 
 
@@ -472,7 +464,8 @@ abort:
 	sta imageoptions		; restore option string
 keep_partial_image:
 	jsr close_files
-	jmp READY
+	jsr waitkey
+	jmp main
 
 ;--------------------------------------------------------------------------
 ; CLOSE FILES
@@ -490,9 +483,6 @@ close_files:
 ; AUTO DETECT SIDES
 ;--------------------------------------------------------------------------
 autodetect_sides:        
-	lda sides			; autodetect sides?
-	bne no_autodetect
-
 	lday msg_detect_sides
 	jsr STROUTZ
 
@@ -509,15 +499,13 @@ autodetect_sides:
 	bne @singlesided
 	inx
 @singlesided:
+	dex
+	stx doubleside
+	inx
 	lda #0
 	jsr INTOUT
-	jsr_rts CRLF
-
-no_autodetect:
-	lda sides
-	sta dsksides
-	rts
-
+	jsr CRLF
+	jsr_rts set_d8x_parm
 
 ;--------------------------------------------------------------------------
 ; READ BLOCK				rd_trk	< track number
@@ -660,48 +648,6 @@ init_drive:
 	lday cmd_ix
 	jsr_rts send_cmd
 
-
-;--------------------------------------------------------------------------
-; PRINT SETTINGS
-;--------------------------------------------------------------------------
-print_settings:
-
-	lday msg_src
-	jsr STROUTZ
-	lda #0
-	ldx sunit
-	jsr INTOUT
-	jsr SPACE
-	lda #'/'
-	jsr BSOUT
-	lda #0
-	ldx sdrive
-	jsr INTOUT
-	jsr SPAC2
-	lda sunit
-	sta DN
-	jsr get_ds
-	jsr print_ds
-	jsr CRLF
-
-	lday msg_target
-	jsr STROUTZ
-	lda #0
-	ldx tunit
-	jsr INTOUT
-	jsr SPACE
-	lda #'/'
-	jsr BSOUT
-	lda #0
-	ldx tdrive
-	jsr INTOUT
-	jsr SPAC2
-	lda tunit
-	sta DN
-	jsr get_ds
-	jsr print_ds
-	jsr_rts CRLF
-
 ;--------------------------------------------------------------------------
 ; SET DRIVE CONSTANTS
 ;--------------------------------------------------------------------------
@@ -713,6 +659,9 @@ set_d64:
 
 	lda #35
 	sta tracks
+
+	lda #0
+	sta doubleside
 
 	lday calc_blks_2031_4040
 	stay vect_calc_blks
@@ -730,6 +679,9 @@ set_d80:
 	lda #77
 	sta tracks
 
+	lda #0
+	sta doubleside
+
 	lday calc_blks_8x50
 	stay vect_calc_blks
 
@@ -746,6 +698,9 @@ set_d82:
 	lda #154
 	sta tracks
 
+	lda #1
+	sta doubleside
+
 	lday calc_blks_8x50
 	stay vect_calc_blks
 
@@ -760,8 +715,8 @@ calc_errbuf_top:
 	sta errbuf_top+1
 	rts
 
-set_dxx_parm:
-	lda sides
+set_d8x_parm:
+	lda doubleside
 	bne @d82
 	jmp set_d80
 @d82:	jmp set_d82
@@ -772,11 +727,7 @@ set_dxx_parm:
 ;--------------------------------------------------------------------------
 .rodata
 
-msg_hello:	.byte CR, CR
-		.byte "IMGRD 0.0401 PRE-ALPHA", CR, 0
-
-msg_src:	.byte "SOURCE ", 0
-msg_target:	.byte "TARGET ", 0
+msg_start:	.byte "READING DISK IMAGE...", CR, 0
 msg_detect_sides:
 		.byte "AUTODETECTING SIDES: ",0
 msg_bad_blocks:	.byte " BAD BLOCK"
@@ -785,13 +736,11 @@ msg_aborted:	.byte CR, "ABORTED", CR, 0
 msg_appending:	.byte CR, "APPENDING ERROR TABLE... ",0
 msg_ok:		.byte "OK", CR, 0
 ;                      ....:....1....:....2....:....3....:....4
-msg_kp_part:	.byte "KEEP PARTIAL IMAGE FILES  : ", 0
-msg_frc_errtbl:	.byte "APPEND ERROR TABLE ALWAYS : ", 0
 msg_again:	.byte "READ ANOTHER DISK WITH SAME SETTINGS? ", 0
 msg_another:	.byte "EDIT SETTINGS? ", 0
-msg_doublesd:	.byte "COPY DOUBLE SIDE 8250/D82 : ", 0
 msg_gin:	.byte "SCANNING FILENAMES", 0
 msg_gin_failed:	.byte "UNABLE TO DETERMINE IMAGE NAME", CR, 0
+msg_writing_to:	.byte "WRITING TO ", 0
 
 str_ok:		.byte "00,"
 
@@ -804,20 +753,26 @@ cmd_mr:		.byte "M-R", $03, $11, 0
 ; VARIABLES
 ;--------------------------------------------------------------------------
 .data
+
+; ----- USER SETTINGS -----------------------------------------------------
 sunit:		.byte 8		; Source unit address
 sdrive:		.byte 0		; Source drive 0/1
 tunit:		.byte 9		; Target unit address
 tdrive:		.byte 0		; Source drive 0/1
-ilv:		.byte 1		; Interleave
-sides:		.byte 1		; Sides, 0=auto
-retries:	.byte 15	; Number of retries
-tracks:		.byte 77	; last track
-sectors:	.byte 29	; number of sectors
+retries:	.byte 16	; Number of retries, must be power of 2
 keep_partial:	.byte 1		; keep partial image file on break
 force_errtbl:	.byte 0		; write error table always if non-zero
+bamonly:	.byte 0		; read only allocated blocks
+useflpcde:	.byte 1		; read with floppy code
+autoinc:	.byte 1		; auto-increment image filenames
+;--------------------------------------------------------------------------
+
+doubleside:	.byte 1		; flag: disk has data on both sides
+tracks:		.byte 77	; last track
+sectors:	.byte 29	; number of sectors
+
 
 cmd_ix:		.byte "Ix", 0
-
 cmd_rd_sec:	.byte "M-W"
 		.addr $1100
 		.byte 3
@@ -844,7 +799,6 @@ flg_again:	.byte 1
 flg_another:	.byte 1
 
 .bss
-dsksides:	.res 1		; number of disk sides
 rd_res:		.res 1		; FDC error code
 saveA:		.res 1
 saveX:		.res 1

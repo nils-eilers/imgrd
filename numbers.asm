@@ -1,3 +1,5 @@
+	.include "6502.inc"
+
 	.import BSOUT	
 
 	.export mul10, itoa
@@ -90,13 +92,18 @@ c10:	iny
 myintout:
 	jsr itoa
 	ldx #0
-mio10:	lda digits,x
+mio10:	lda digits,x		; skip leading zeroes
 	cmp #'0'
-	beq mio20
-	jsr BSOUT
-mio20:	inx
+	bne mio20
+	inx
 	cpx #5
 	bne mio10
+	jsr_rts BSOUT
+mio20:	lda digits,x
+	jsr BSOUT
+	inx
+	cpx #5
+	bne mio20
 	rts
 
 .bss

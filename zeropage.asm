@@ -10,6 +10,8 @@
 	.exportzp MOVTEND	:= $55	; block move target end addr+1
 	.exportzp MOVSEND	:= $57	; block move source end addr+1
 	.exportzp MOVSRC	:= $5c	; block move source start addr
+	.exportzp tmp_X		:= $55
+	.exportzp tmp_Y		:= $56
 
 	.exportzp DN		:= $d4	; device number
 	.exportzp FNADR		:= $da	; ptr $da,$db to filename
@@ -18,6 +20,7 @@
 	.exportzp LVFLAG	:= $9d	; LOAD/VERIFY flag
 	.exportzp SA		:= $d3	; secondary address
 	.exportzp ST		:= $96	; status ST
+	.exportzp STATUS	:= $96	; status ST
 	.exportzp EAL		:= $c9	; $c9/$ca end of program
 	.exportzp VARTAB	:= $2a	; $2a/$2b start of basic variables
 
@@ -33,3 +36,8 @@
 	.exportzp CURSP		:= $c6	; 
 	.exportzp CURAD		:= $c4	;
 	.exportzp CHAR		:= $a9	;
+
+	.exportzp ptr		:= $3C	; pointer to command string
+	.exportzp linecounter	:= $3C
+	.exportzp errptr	:= $3E	; pointer to error table
+

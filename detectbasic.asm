@@ -115,7 +115,8 @@ basic4_detected:
 
 .segment "JUMPTABLE"
 .export ACPTR, CIOUT, CLOSE, CRLF, INTOUT, HEXOUT, LISTN, OPEN, READY, SECND
-.export SPAC2, SPACE, STOPEQ, TALK, UNLSN, UNTLK, SCNT, SETT, STROUT
+.export SPAC2, SPACE, STOPEQ, TALK, UNLSN, UNTLK, SCNT, SETT, STROUT, CLSEI
+.export OPENI, SCROUT
 
 ; this assembler should allow splitting long lines :-/
 .assert ((BASIC4_jump_table_end-BASIC4_jump_table_start)/3)=((BASIC2_vectors_end-BASIC2_vectors_start)/2), error, "Number of ROM entries for BASIC 2 / 4 mismatch"
@@ -125,13 +126,16 @@ BASIC4_jump_table_start:
 ACPTR:	jmp $f1c0
 CIOUT:	jmp $f19e
 CLOSE:	jmp $f2e0
+CLSEI:	jmp $f72f ; close and unlisten
 CRLF:	jmp $d534
 HEXOUT:	jmp $d722
 INTOUT:	jmp $cf83
 LISTN:	jmp $f0d5
 OPEN:	jmp $f563
+OPENI:	jmp $f4a5 ; open file on IEEE device
 READY:	jmp $b3ff
 SCNT:	jmp $f2c1
+SCROUT:	jmp $e202 ; output A to screen
 SECND:	jmp $f143
 SETT:	jmp $f2cd
 SPAC2:	jmp $d52e
@@ -155,13 +159,16 @@ BASIC2_vectors_start:
 	.word $f18c	; ACPTR
 	.word $f16f	; CIOUT
 	.word $f2ac	; CLOSE
+	.word $f6f0	; CLSEI
 	.word $fdd0	; CRLF
 	.word $e775	; HEXOUT
 	.word $dcd9	; INTOUT
 	.word $f0ba	; LISTN
 	.word $f524	; OPEN
+	.word $f466	; OPENI
 	.word $c389	; READY
 	.word $f28d	; SCNT
+	.word $e3d8	; SCROUT
 	.word $f128	; SECND
 	.word $f299	; SETT
 	.word $fdca	; SPAC2
