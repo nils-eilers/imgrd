@@ -375,7 +375,7 @@ prs10:	lda #'N'
 	
 .rodata
 ;                     ....:....1....:....2....:....3....:....4
-msg_menuleft:	.byte CLRHOME, "IMGRD 0.0422 PRE-ALPHA", CR
+msg_menuleft:	.byte CLRHOME, "IMGRD 0.0423 PRE-ALPHA", CR
 		.byte CR
 		.byte "READ", CR
 		.byte CR

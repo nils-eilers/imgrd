@@ -61,10 +61,10 @@ read_image:
 	jsr print_ds
 	jsr CRLF
 	pla
-	cmp #ERROR_ILLEGAL_TS
-	beq @ok				; ignore, could be 8050 formatted
-					; disk in 8250
-	jsr continue_or_abort
+	beq @ok
+	cmp #ERROR_ILLEGAL_TS		; ignore, could be 8050 formatted 
+	beq @ok				; disk in 8250
+	jsr continue_or_abort		; anything else: ask user to continue
 	bne @cont
 	jmp main
 @cont:	jsr CRLF	
@@ -151,7 +151,7 @@ image_open_ok:
 	lda #0
 	sta rd_sec
 
-	jmp image_complete		; FIXME: skips reading
+;	jmp image_complete		; FIXME: skips reading
 
 copy_track:
 	jsr calc_blks
