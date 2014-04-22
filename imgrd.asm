@@ -220,14 +220,9 @@ plural:
 	jsr yesno
 	beq @anoth
 	jmp read_image
+@anoth:	
 
-@anoth:	lday msg_another
-	jsr STROUTZ
-	lday flg_another
-	jsr yesno
-	beq @exit2
-	jmp menu
-@exit2:	jmp READY
+	jmp main
 
 
 ;--------------------------------------------------------------------------
