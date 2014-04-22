@@ -8,7 +8,7 @@
 
 	.importzp LFN, DN, ST, SA, FNADR, FNLEN
 
-	.export get_ds, print_ds, send_cmd, SETNAM, SETLFS
+	.export init_drive, get_ds, print_ds, send_cmd, SETNAM, SETLFS
 
         ptr = $3C                         ; pointer to command string
         ptr2 = $3E

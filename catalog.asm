@@ -3,19 +3,34 @@
 
 	.import OPENI, TALK, ACPTR, INTOUT, SCROUT, GETIN, CRLF, READY
 	.import CLSEI, SECND, STOPEQ, CLSEI, OPENI, SCROUT, STROUTZ
+	.import init_drive, get_ds, print_ds
 	.importzp DN, SA, FNLEN, FNADR, STATUS, MEMUSS
 	.importzp linecounter
 
-	.import menu
-	.export catalog, str_catdrv, waitkey
+	.export catalog, waitkey
 
 	LINES = 24
 
 ;----------------------------------------------------------------------------
-; CATALOG
+; CATALOG		A < drive
+;			Y < unit
 ;----------------------------------------------------------------------------
 
 catalog:
+
+	sty DN
+	tax
+	clc
+	adc #'0'
+	sta str_catdrv
+	txa
+
+	; init drive
+	; this fails with 66,ILLEGAL TRACK OR SECTOR if a 8050 formatted disk
+	; was inserted in a 8250 but will trigger the 8050 mode and the
+	; following catalog will work
+	jsr init_drive			
+
 	lda #LINES
 	sta linecounter
 	lda #CLRHOME
@@ -91,10 +106,16 @@ nl10:	ldy #2
 
 
 stoplisting:
-	jsr waitkey
-abort:	jsr CLSEI			; close file with $E0, unlisten
+	jsr CLSEI
+	jsr get_ds
+	bcc sl10
 	jsr CRLF
-	jmp menu
+	jsr print_ds
+	jsr CRLF
+sl10:	jsr_rts waitkey
+
+abort:	jsr_rts CLSEI			; close file with $E0, unlisten
+
 
 continue_or_abort:
 	lday msg_any_key
@@ -112,7 +133,7 @@ continue_or_abort:
 	bne ca80
 	pla				; drop return address
 	pla
-	jmp menu
+	jmp abort
 ca80:	rts
 
 waitkey:

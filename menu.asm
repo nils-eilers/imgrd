@@ -127,17 +127,14 @@ imgparmvect:
 mn56:	cmp #'$'			; $ --> catalog of source drive
 	bne mn57
 	lda sdrive
-	ldx sunit
-cat:	stx DN
-	clc
-	adc #'0'
-	sta str_catdrv
-	jmp catalog
+	ldy sunit
+cat:	jsr catalog
+	jmp menu
 
 mn57:	cmp #'C'			; C --> catalog of target drive
 	bne mn58
 	lda tdrive
-	ldx tunit
+	ldy tunit
 	bne cat
 
 mn58:	cmp #'N'			; N --> given/auto inc image number
