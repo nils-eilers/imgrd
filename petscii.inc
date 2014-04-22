@@ -2,6 +2,7 @@
 ; PETSCII
 ;--------------------------------------------------------------------------
 	STOP	= $03 ; STOP key
+	BELL	= $07 ; 
 	CR	= $0D ; CARRIAGE RETURN
 	QUOT	= $22 ; "
 	CLRHOME	= $93 ; clear screen

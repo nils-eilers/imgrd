@@ -8,7 +8,7 @@
 
 	.import sunit, sdrive, tunit, tdrive, retries
 	.import keep_partial, force_errtbl, bamonly, useflpcde
-	.import autoinc
+	.import autoinc, sound
 	.import catalog, str_catdrv
 
 	.export menu, imgparmvect
@@ -45,6 +45,7 @@ menu:
 	jsr STROUTZ_right
 	gotoxy 0, 23			; bottom line actions
 	print msg_return
+	jsr prsound
 	gotoxy 34, 23
 	print msg_quit
 	jsr prsunit
@@ -211,10 +212,7 @@ rt10:	sta retries
 mn64:	cmp #CR
 	beq go
 	cmp #' '
-	beq go
-
-	jsr wrongkey
-	jmp mn50
+	bne mn65
 
 go:
 	gotoxy 0, 23			; clear bottom line
@@ -222,6 +220,19 @@ go:
 	jsr spaces
 	gotoxy 0, 19
 	rts
+
+
+mn65:	cmp #'S'			; S --> toggle audible feedback
+	bne mn66
+	ldxa sound
+	jsr toggle
+	jsr prsound
+	jmp waituser
+
+mn66:
+
+	jsr wrongkey
+	jmp mn50
 
 
 ;--------------------------------------------------------------------------
@@ -352,7 +363,16 @@ prretr:
 	jsr myintout
 	rts
 
-
+prsound:
+	gotoxy 19, 23
+	print msg_sound
+	lda sound
+	beq prs10
+	lda #'Y'
+	skip2
+prs10:	lda #'N'
+	jsr_rts BSOUT
+	
 .rodata
 ;                     ....:....1....:....2....:....3....:....4
 msg_menuleft:	.byte CLRHOME, "IMGRD 0.0422 PRE-ALPHA", CR
@@ -390,6 +410,7 @@ msg_menuright:	.byte HOME, CR
 		.byte "APPEND ERROR ", RVSON, "T", RVSOFF, "ABLE:"
 		.byte 0
 msg_return:	.byte RVSON, "RETURN", RVSOFF, " READ IMAGE", 0
+msg_sound:	.byte RVSON, "S", RVSOFF, "OUND: ", 0
 msg_quit:	.byte RVSON, "Q", RVSOFF, "UIT", 0
 msg_all:	.byte "ALL ", 0
 msg_only_allc:	.byte "ONLY", CR, "ALLOCATED ", 0

@@ -20,6 +20,7 @@
 	.import upload_drivecode, get_ds, print_ds, send_cmd
 	.import flashget, yesno, flashscreen, digit_thousands, itoa
 	.import myintout, imgparmvect, waitkey, continue_or_abort
+	.import play_fanfare, play_requiem, shutup
 	.import SETNAM, SETLFS
 
 	.export main, user_abort
@@ -29,6 +30,7 @@
 	.import menu
 	.export sunit, sdrive, tunit, tdrive, retries, autoinc
 	.export keep_partial, force_errtbl, bamonly, useflpcde
+	.export sound
 
 	CH_BUF	= 3			; secondary address for sector buffer
 	CH_IMG	= 9			; secondary address for image file
@@ -149,7 +151,7 @@ image_open_ok:
 	lda #0
 	sta rd_sec
 
-;	jmp image_complete		; FIXME: skips reading
+	jmp image_complete		; FIXME: skips reading
 
 copy_track:
 	jsr calc_blks
@@ -228,14 +230,25 @@ plural:
 @appnd:	jsr append_errtbl
 @exit:	jsr close_files
 
+	lda sound
+	beq quiet
+	lda errcnt			; audible feedback
+	ora errcnt+1
+	beq fanfr
+	jsr play_requiem
+	jmp quiet
+fanfr:	jsr play_fanfare
+quiet:
+
 	lday msg_again
 	jsr STROUTZ
 	lday flg_again
 	jsr yesno
 	beq @anoth
+	jsr shutup
 	jmp read_image
 @anoth:	
-
+	jsr shutup
 	jmp main
 
 
@@ -776,6 +789,7 @@ force_errtbl:	.byte 0		; write error table always if non-zero
 bamonly:	.byte 0		; read only allocated blocks
 useflpcde:	.byte 1		; read with floppy code
 autoinc:	.byte 1		; auto-increment image filenames
+sound:		.byte 1		; make noise when image reading completes
 ;--------------------------------------------------------------------------
 
 doubleside:	.byte 1		; flag: disk has data on both sides
