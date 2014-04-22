@@ -7,7 +7,7 @@
 	.importzp DN, SA, FNLEN, FNADR, STATUS, MEMUSS
 	.importzp linecounter
 
-	.export catalog, waitkey
+	.export catalog, waitkey, continue_or_abort
 
 	LINES = 24
 
@@ -101,6 +101,10 @@ newline:
 	lda #LINES
 	sta linecounter
 	jsr continue_or_abort
+	beq abort
+	lda #CLRHOME
+	jsr SCROUT
+	
 nl10:	ldy #2
 	bne to_list_blocks
 
@@ -117,27 +121,20 @@ sl10:	jsr_rts waitkey
 abort:	jsr_rts CLSEI			; close file with $E0, unlisten
 
 
+;----------------------------------------------------------------------------
+; CONTINUE OR ABORT
+; --> zero flag set if user wants to abort
+;----------------------------------------------------------------------------
 continue_or_abort:
-	lday msg_any_key
-	jsr STROUTZ
-	lday msg_stop
+	lday msg_ca
 	jsr STROUTZ
 :	jsr GETIN
 	beq :-
-	pha
-;	jsr CRLF
-	lda #CLRHOME
-	jsr SCROUT
-	pla
 	cmp #STOP
-	bne ca80
-	pla				; drop return address
-	pla
-	jmp abort
-ca80:	rts
+	rts
 
 waitkey:
-	lday msg_any_key_mn
+	lday msg_mn
 	jsr STROUTZ
 :	jsr GETIN
 	beq :-
@@ -149,7 +146,6 @@ str_cat:	.byte "$"
 str_catdrv:	.byte "0"
 
 .rodata
-msg_any_key:	.byte RVSON, "ANY KEY", RVSOFF, " TO CONTINUE", 0
-msg_any_key_mn:	.byte RVSON, "ANY KEY", RVSOFF, " TO RETURN TO MENU", 0
-msg_stop:	.byte ", ", RVSON, "STOP", RVSOFF, " TO ABORT", 0
-
+msg_ca:		.byte RVSON, "ANY KEY", RVSOFF, " TO CONTINUE, "
+		.byte RVSON, "STOP", RVSOFF, " TO ABORT", 0
+msg_mn:		.byte RVSON, "ANY KEY", RVSOFF, " TO RETURN TO MENU", 0

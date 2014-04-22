@@ -19,7 +19,7 @@
 
 	.import upload_drivecode, get_ds, print_ds, send_cmd
 	.import flashget, yesno, flashscreen, digit_thousands, itoa
-	.import myintout, imgparmvect, waitkey
+	.import myintout, imgparmvect, waitkey, continue_or_abort
 	.import SETNAM, SETLFS
 
 	.export main, user_abort
@@ -36,6 +36,7 @@
 	ERROR_OK		= 0
 	ERROR_FILE_NOT_FOUND 	= 62
 	ERROR_FILE_EXISTS	= 63
+	ERROR_ILLEGAL_TS	= 66
 	
 
 ;--------------------------------------------------------------------------
@@ -48,12 +49,23 @@ main:
 	jsr STROUTZ
 
 read_image:
+	lday msg_init_drive
+	jsr STROUTZ
 	lda sdrive			; INIT source drive
 	ldy sunit
 	jsr init_drive
 	jsr get_ds
-	bcc @ok
-	jsr_rts print_ds		; INIT failed
+	pha
+	jsr print_ds
+	jsr CRLF
+	pla
+	cmp #ERROR_ILLEGAL_TS
+	beq @ok				; ignore, could be 8050 formatted
+					; disk in 8250
+	jsr continue_or_abort
+	bne @cont
+	jmp main
+@cont:	jsr CRLF	
 @ok:
 	lday errbuf			; clear error table
 	stay ptr
@@ -726,6 +738,7 @@ set_d8x_parm:
 .rodata
 
 msg_start:	.byte "READING DISK IMAGE...", CR, 0
+msg_init_drive:	.byte "INIT DRIVE: ", 0
 msg_detect_sides:
 		.byte "AUTODETECTING SIDES: ",0
 msg_bad_blocks:	.byte " BAD BLOCK"
@@ -794,7 +807,6 @@ str_imagename_end:
 		.byte 0
 
 flg_again:	.byte 1
-flg_another:	.byte 1
 
 .bss
 rd_res:		.res 1		; FDC error code
