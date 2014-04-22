@@ -188,6 +188,8 @@ next_blk:
 
 image_complete:
 
+	jsr close_src
+
 	jsr CRLF
 	jsr CRLF
 	ldx errcnt
@@ -469,6 +471,7 @@ close_files:
 	lda #CH_IMG			; close image file
 	sta LFN
 	jsr CLOSE
+close_src:
 	lda #CH_BUF			; close data buffer
 	sta LFN
 	jsr_rts CLOSE
