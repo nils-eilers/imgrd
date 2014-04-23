@@ -7,7 +7,7 @@
 	.include "petscii.inc"
 
 	.import LISTN, TALK, SECND, ACPTR, UNTLK, UNLSN, OPEN, CLOSE
-	.import CLRCH, SCNT, SETT, CHKIN, CHKOUT, BASIN
+	.import CLRCH, SCNT, SETT, CHKIN, CHKOUT, BASIN, TKSA
 	.import CIOUT, READY, STOPEQ, GETIN, STOPR, STROUT
 	.import SPACE, SPAC2, INTOUT, STROUTZ, CRLF, BSOUT, HEXOUT
 
@@ -32,8 +32,21 @@
 	.export keep_partial, force_errtbl, bamonly, useflpcde
 	.export sound
 
-	CH_BUF	= 3			; secondary address for sector buffer
-	CH_IMG	= 9			; secondary address for image file
+; ---------- CHANNELS / SECONDARY ADDRESSES -------------------------------
+
+	CH_BUF			= 3	; sector buffer
+	CH_IMG			= 9	; image file
+
+; ---------- STATUS -------------------------------------------------------
+
+	ST_TIMEOUT_WR		= 1	; Time out on write
+	ST_TIMEOUT_RD		= 2	; Time out on read
+	ST_TIMEOUTS		= 3
+	ST_EOI			= 64	; Last byte
+	ST_NODEV		= 128	; Device not present
+
+
+; ---------- CBM DOS ERROR CODES ------------------------------------------
 
 	ERROR_OK		= 0
 	ERROR_FILE_NOT_FOUND 	= 62
@@ -151,7 +164,7 @@ image_open_ok:
 	lda #0
 	sta rd_sec
 
-;	jmp image_complete		; FIXME: skips reading
+;	jmp image_complete		; showstopper if uncommented
 
 copy_track:
 	jsr calc_blks
@@ -427,33 +440,58 @@ copy_block:
 	jsr read_block			; read block in floppy buffer
 	pha				; save FDC error code
 
-	lday cmd_bp			; copy block from floppy buffer	
-	jsr send_cmd			; to RAM buffer	
-	ldx #CH_BUF
-	jsr CHKIN
+	lday cmd_bp			; reset block pointer to 0
+	jsr send_cmd
+
+
+; Copy block from floppy buffer to RAM buffer
+
 	lday blkbuf
 	stay ptr
 
-@rd_blk:
-	jsr check_abort
-	jsr BASIN
+	lda sunit
+	sta DN
+	jsr TALK
+	lda #$60 | CH_BUF		; TALK unit "sunit",
+	jsr TKSA			; secondary address "CH_BUF"
+
 	ldy #0
+rdb10:	jsr check_abort
+rdb20:	lda ST				; reset any timeout errors
+	and #$FF - ST_TIMEOUTS
+	sta ST	
+	jsr ACPTR			; read byte from bus
 	sta (ptr),y
-	inc ptr
-	bne @rd_blk
-	jsr CLRCH
+	lda ST
+	and #ST_TIMEOUTS
+	bne rdb10			; timeout: try again
+	iny
+	bne rdb20
+	jsr UNTLK			; UNTALK
 
-	ldx #CH_IMG			; copy block from RAM buffer
-	jsr CHKOUT			; to image file
 
-@wr_blk:
-	jsr check_abort
+
+
+	lda tunit
+	sta DN
+	jsr LISTN
+	lda #$60 | CH_IMG		; LISTEN unit "tunit",
+	jsr SECND			; secondary address "CH_IMG"
+
 	ldy #0
-	lda (ptr),y
-	jsr BSOUT
-	inc ptr
-	bne @wr_blk
-	jsr CLRCH
+wrb10:	jsr check_abort
+wrb20:	lda ST				; reset any timeout errors
+	and #$FF - ST_TIMEOUTS
+	sta ST
+	lda blkbuf,y
+	jsr CIOUT			; send byte to bus
+	lda ST
+	and #ST_TIMEOUTS
+	bne wrb10			; timeout: try again
+	iny
+	bne wrb20
+	jsr UNLSN			; UNLISTEN
+
 	pla				; restore FDC error code
 	rts
 
