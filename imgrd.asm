@@ -557,10 +557,10 @@ autodetect_sides:
 
 	ldx #1
 	cmp #1				; FDC code == 1 (OK) ?
-	bne @singlesided
-	inx
+	beq @doublesided
 @singlesided:
-	dex
+	ldx #0
+@doublesided:
 	stx doubleside
 	inx
 	lda #0
