@@ -40,4 +40,7 @@
 	.exportzp ptr		:= $3C	; pointer to command string
 	.exportzp linecounter	:= $3C
 	.exportzp errptr	:= $3E	; pointer to error table
+	.exportzp ptr1		:= $55
+	.exportzp ptr2		:= $57
+	.exportzp ptr3		:= $5c
 

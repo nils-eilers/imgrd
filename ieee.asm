@@ -9,6 +9,7 @@
 	.importzp LFN, DN, ST, SA, FNADR, FNLEN
 
 	.export init_drive, get_ds, print_ds, send_cmd, SETNAM, SETLFS
+	.export print_TS
 
         ptr = $3C                         ; pointer to command string
         ptr2 = $3E
@@ -186,13 +187,34 @@ SETNAM:
 	sty FNADR+1
 	rts
 
+print_TS:
+	sta tmp_trk
+	stx tmp_sec
+	lday msg_trk
+	jsr STROUTZ
+	lda #0
+	ldx tmp_trk
+	jsr INTOUT
+	lday msg_sec
+	jsr STROUTZ
+	lda #0
+	ldx tmp_sec
+	jsr INTOUT
+	lda #':'
+	jsr BSOUT
+	jsr SPACE
+	lda tmp_trk
+	ldx tmp_sec
+	rts
+	
 
 ;--------------------------------------------------------------------------
 ; STRING CONSTANTS
 ;--------------------------------------------------------------------------
 .rodata
 
-
+msg_trk:	.byte "TRACK", 0
+msg_sec:	.byte ", SECTOR", 0
 
 ;--------------------------------------------------------------------------
 ; VARIABLES
@@ -203,3 +225,5 @@ cmd_ix:         .byte "Ix", 0
 
 .bss
 bufds:          .res 40         ; Disk status text
+tmp_trk:	.res 1
+tmp_sec:	.res 1

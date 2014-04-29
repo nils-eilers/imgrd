@@ -116,14 +116,15 @@ tp10:	stx imgtype
 update_imgparmvect:
 	ldx imgtype
 	lda setimgparms_lo,x
-	sta imgparmvect+1
+	sta vect_imgparm
 	lda setimgparms_hi,x
-	sta imgparmvect+2
+	sta vect_imgparm+1
 	rts
 
-
-imgparmvect:
-	jmp set_d64			; FIXME: mark as self mod
+imgparmvect: jmp (vect_imgparm)		; forwarding to subroutine
+.bss
+vect_imgparm: .res 2
+.code
 
 mn56:	cmp #'$'			; $ --> catalog of source drive
 	bne mn57
