@@ -4,6 +4,7 @@
 	.import STROUTZ, SPACE, CRLF, READY, GETIN, BSOUT, SPAC2
 	.import STROUTZ_right, locate, myintout, spaces, wrongkey
 	.import set_d64, set_d80, set_d82, autodetect_sides
+	.import reset_source_drive
 	.importzp ptr, DN
 
 	.import sunit, sdrive, tunit, tdrive, retries
@@ -230,8 +231,12 @@ mn65:	cmp #'S'			; S --> toggle audible feedback
 	jsr prsound
 	jmp waituser
 
-mn66:
+mn66:	cmp #'E'			; E --> reset source drive
+	bne mn67
+	jsr reset_source_drive
+	jmp waituser	
 
+mn67:
 	jsr wrongkey
 	jmp mn50
 
@@ -392,7 +397,10 @@ msg_menuleft:	.byte CLRHOME, "IMGRD 0.0424 PRE-ALPHA", CR
 		.byte "READ", CR
 		.byte CR
 		.byte CR
-		.byte "READ ", RVSON, "M", RVSOFF, "ETHOD: "
+		.byte "READ ", RVSON, "M", RVSOFF, "ETHOD: ", CR
+		.byte CR
+		.byte CR
+		.byte "R", RVSON, "E", RVSOFF, "SET DRIVE"
 		.byte 0
 msg_menuright:	.byte HOME, CR
 		.byte CR

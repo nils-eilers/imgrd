@@ -27,7 +27,7 @@
 	.import vect_rdbam, rdbamd64, rdbamd80, rdbamd82
 	.import vect_blkused, blkused_d64, blkused_8x50
 
-	.export main, user_abort
+	.export main, user_abort, reset_source_drive
 	.export set_d64, set_d80, set_d82, autodetect_sides
 	.export print_OK, print_bad_blocks, getblk, getblkptr1, errcnt
 	.export rd_trk, rd_sec, bamonly
@@ -860,6 +860,15 @@ set_d8x_parm:
 
 
 ;--------------------------------------------------------------------------
+; RESET SOURCE DRIVE
+;--------------------------------------------------------------------------
+reset_source_drive:
+	lda sunit
+	sta DN
+	lday cmd_reset
+	jsr_rts send_cmd
+
+;--------------------------------------------------------------------------
 ; STRING CONSTANTS
 ;--------------------------------------------------------------------------
 .rodata
@@ -889,6 +898,7 @@ str_ok:		.byte "00,"
 cmd_bp20:	.byte "B-P 2 0",0
 cmd_me:		.byte "M-E", $06, $11, 0
 cmd_mr:		.byte "M-R", $03, $11, 0
+cmd_reset:	.byte "U:", 0
 
 
 ;--------------------------------------------------------------------------
