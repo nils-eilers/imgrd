@@ -5,6 +5,7 @@
 ;--------------------------------------------------------------------------
 	.include "6502.inc"		; general 6502 macros
 	.include "petscii.inc"
+	.include "cbmdos.inc"
 
 	.import LISTN, TALK, SECND, ACPTR, UNTLK, UNLSN, OPEN, CLOSE
 	.import CLRCH, SCNT, SETT, CHKIN, CHKOUT, BASIN, TKSA
@@ -15,16 +16,21 @@
 	.importzp CURSOR, CURSP, CURAD, BLINK, KEY, CHAR
 	.importzp MOVSRC, STRADR
 
-	.importzp ptr, errptr
+	.importzp ptr, ptr1, ptr2, ptr3, errptr
 
 	.import upload_drivecode, get_ds, print_ds, send_cmd
 	.import flashget, yesno, flashscreen, digit_thousands, itoa
 	.import myintout, imgparmvect, waitkey, continue_or_abort
 	.import play_fanfare, play_requiem, shutup
 	.import SETNAM, SETLFS
+	.import rdbam, blkused
+	.import vect_rdbam, rdbamd64, rdbamd80, rdbamd82
+	.import vect_blkused, blkused_d64, blkused_8x50
 
 	.export main, user_abort
 	.export set_d64, set_d80, set_d82, autodetect_sides
+	.export print_OK, print_bad_blocks, getblk, getblkptr1, errcnt
+	.export rd_trk, rd_sec, bamonly
 
 	; menu settings
 	.import menu
@@ -36,23 +42,6 @@
 
 	CH_BUF			= 3	; sector buffer
 	CH_IMG			= 9	; image file
-
-; ---------- STATUS -------------------------------------------------------
-
-	ST_TIMEOUT_WR		= 1	; Time out on write
-	ST_TIMEOUT_RD		= 2	; Time out on read
-	ST_TIMEOUTS		= 3
-	ST_EOI			= 64	; Last byte
-	ST_NODEV		= 128	; Device not present
-
-
-; ---------- CBM DOS ERROR CODES ------------------------------------------
-
-	ERROR_OK		= 0
-	ERROR_FILE_NOT_FOUND 	= 62
-	ERROR_FILE_EXISTS	= 63
-	ERROR_ILLEGAL_TS	= 66
-	
 
 ;--------------------------------------------------------------------------
 ; MAIN
@@ -155,6 +144,11 @@ image_open_ok:
 	jsr prnfn
 	jsr CRLF
 
+	lda bamonly			; Read BAM first if only
+	beq :+				; allocated blocks to copy
+	jsr rdbam
+:
+
 	lday 0
 	stay errcnt
 	lday errbuf
@@ -170,34 +164,60 @@ copy_track:
 	jsr calc_blks
 	jsr CRLF
 	ldx rd_trk
+	cpx #10
+	bcs :+
+	jsr SPACE
+:	ldx rd_trk
+	cpx #100
+	bcs :+
+	jsr SPACE
+:	ldx rd_trk
 	lda #0
-	jsr INTOUT
+	jsr myintout
 	jsr SPACE
 
 next_blk:
+	lda rd_trk
+	ldx rd_sec
+	jsr blkused			; also checks bamonly + bad BAM
+	bcc read_this_block
+
+skip_this_block:
+	jsr clear_block
+	jsr b2dev			; fill image block with NULLs
+	lda #'*'			; character for skipped block
+	sta blkchar
+	lda #0				; 0 means: block skipped
+	beq update_errtbl		; branch always
+
+read_this_block:
+	lda #'.'
+	sta blkchar			; character for good block
 	jsr copy_block			; copy block from disk to image file
+
+update_errtbl:
 	ldy #0
 	sta (errptr),y			; store error code in table
 	inc errptr
-	bne @nocarry
+	bne :+
 	inc errptr+1
-@nocarry:
-	cmp #1				; block read successfully?
-	beq @rdsuccess
+:
+	cmp #FDC_OK+1
+	bcc rdsuccess			; block read successfully?
 	tax
 	lda #0
 	jsr INTOUT			; print FDC error code
 	inc errcnt			; increment error counter
-	bne @nocarry2
+	bne :+ 
 	inc errcnt+1
-@nocarry2:
-	bne @check_trk_complete
+:	lda #'B'			; character for bad block
+	sta blkchar
 
-@rdsuccess:
-	lda #'.'
+rdsuccess:
+	lda blkchar			; print character indicating block status
 	jsr BSOUT
 
-@check_trk_complete:
+check_trk_complete:
 	inc rd_sec
 	lda rd_sec
 	cmp sectors
@@ -211,7 +231,7 @@ next_blk:
 	cmp tracks
 	beq image_complete
 	inc rd_trk
-	bne copy_track
+	jmp copy_track
 
 image_complete:
 
@@ -219,21 +239,8 @@ image_complete:
 
 	jsr CRLF
 	jsr CRLF
-	ldx errcnt
-	lda errcnt+1
-	jsr INTOUT			; print number of bad blocks
-	lda #'S'
-	sta msg_bb_plural
-	lda errcnt
-	cmp #1
-	bne plural
-	lda errcnt+1
-	bne plural
-	lda #' '
-	sta msg_bb_plural
-plural:
-	lday msg_bad_blocks
-	jsr STROUTZ
+	jsr print_bad_blocks
+	jsr CRLF
 
 	lda force_errtbl
 	bne @appnd
@@ -266,11 +273,31 @@ quiet:
 
 
 ;--------------------------------------------------------------------------
+; PRINT BAD BLOCK(S)
+;--------------------------------------------------------------------------
+print_bad_blocks:
+	ldx errcnt
+	lda errcnt+1
+	jsr INTOUT			; print number of bad blocks
+	lda #'S'
+	sta msg_bb_plural
+	lda errcnt
+	cmp #1
+	bne plural
+	lda errcnt+1
+	bne plural
+	lda #' '
+	sta msg_bb_plural
+plural:
+	lday msg_bad_blocks
+	jsr_rts STROUTZ
+
+
+;--------------------------------------------------------------------------
 ; GET IMAGE NUMBER
 ;--------------------------------------------------------------------------
 
-gin80:	lday msg_ok
-	jsr STROUTZ
+gin80:	jsr print_OK
 	ldx imghi
 	lda imghi+1
 	rts
@@ -429,25 +456,34 @@ append_errtbl:
 	bne @loop
 
 	jsr CLRCH
+
+print_OK:
 	lday msg_ok
 	jsr_rts STROUTZ
 	
 
 ;--------------------------------------------------------------------------
-; COPY BLOCK
+; B2RAM Copy block from floppy buffer to RAM starting at address blkbuf
+; rd_trk < track 1..n
+; rd_sec < sector 0..n
+; A      > FDC error code
 ;--------------------------------------------------------------------------
-copy_block:
-	jsr read_block			; read block in floppy buffer
-	pha				; save FDC error code
+b2ram:	ldxa blkbuf
+;--------------------------------------------------------------------------
+; GETBLK Copy block from floppy buffer to RAM starting at given address
+;      X < LSB address
+;      A < MSB address
+; rd_trk < track 1..n
+; rd_sec < sector 0..n
+; A      > FDC error code
+; Changes ptr, ptr1
+;--------------------------------------------------------------------------
+getblk:	stxa ptr1
+getblkptr1:
 
+	jsr read_block			; read block in floppy buffer
 	lday cmd_bp			; reset block pointer to 0
 	jsr send_cmd
-
-
-; Copy block from floppy buffer to RAM buffer
-
-	lday blkbuf
-	stay ptr
 
 	lda sunit
 	sta DN
@@ -461,17 +497,20 @@ rdb20:	lda ST				; reset any timeout errors
 	and #$FF - ST_TIMEOUTS
 	sta ST	
 	jsr ACPTR			; read byte from bus
-	sta (ptr),y
+	sta (ptr1),y
 	lda ST
 	and #ST_TIMEOUTS
 	bne rdb10			; timeout: try again
 	iny
 	bne rdb20
 	jsr UNTLK			; UNTALK
+	lda rd_res
+	rts
 
-
-
-
+;--------------------------------------------------------------------------
+; B2DEV writes block starting at address blkbuf to device
+;--------------------------------------------------------------------------
+b2dev:
 	lda tunit
 	sta DN
 	jsr LISTN
@@ -491,18 +530,37 @@ wrb20:	lda ST				; reset any timeout errors
 	iny
 	bne wrb20
 	jsr UNLSN			; UNLISTEN
-
-	pla				; restore FDC error code
 	rts
 
+;--------------------------------------------------------------------------
+; COPY BLOCK reads block from floppy into buffer, then writes it
+;--------------------------------------------------------------------------
+copy_block:
+	jsr b2ram
+	jsr b2dev
+	lda rd_res
+	rts
+
+;--------------------------------------------------------------------------
+; CLEAR BLOCK sets all blkbuf bytes to $00
+;--------------------------------------------------------------------------
+clear_block:
+	lda #0
+	tay
+:	sta blkbuf,y
+	iny
+	bne :-
+	rts
 
 ;--------------------------------------------------------------------------
 ; ABORT
 ;--------------------------------------------------------------------------
 check_abort:
 	jsr STOPEQ
-	beq user_abort
+	beq :+
 	rts
+:	pla				; drop return address
+	pla
 	
 user_abort:
 	lday msg_aborted
@@ -629,12 +687,12 @@ read_fdc_status:
 	sta SA
 	jsr SECND
 	jsr ACPTR
-	pha
+	sta rd_res
 	.ifdef DEBUG
 		jsr HEXOUT
 	.endif
 	jsr UNTLK
-	pla
+	lda rd_res
 
 	rts
 
@@ -713,6 +771,8 @@ init_drive:
 ; SET DRIVE CONSTANTS
 ;--------------------------------------------------------------------------
 set_d64:
+	lday msg_set_d64
+	jsr STROUTZ
 	lda #'6'
 	sta imageext
 	lda #'4'
@@ -726,12 +786,18 @@ set_d64:
 
 	lday calc_blks_2031_4040
 	stay vect_calc_blks
+	lday blkused_d64
+	stay vect_blkused
+	lday rdbamd64
+	stay vect_rdbam
 
 	lday 683
 	bne calc_errbuf_top
 
 
 set_d80:
+	lday msg_set_d80
+	jsr STROUTZ
 	lda #'8'
 	sta imageext
 	lda #'0'
@@ -745,12 +811,18 @@ set_d80:
 
 	lday calc_blks_8x50
 	stay vect_calc_blks
+	lday blkused_8x50
+	stay vect_blkused
+	lday rdbamd80
+	stay vect_rdbam
 
 	lday 2083
 	bne calc_errbuf_top
 
 
 set_d82:
+	lday msg_set_d82
+	jsr STROUTZ
 	lda #'8'
 	sta imageext
 	lda #'2'
@@ -764,6 +836,10 @@ set_d82:
 
 	lday calc_blks_8x50
 	stay vect_calc_blks
+	lday blkused_8x50
+	stay vect_blkused
+	lday rdbamd82
+	stay vect_rdbam
 
 	lday 4166
 
@@ -793,7 +869,7 @@ msg_init_drive:	.byte "INIT DRIVE: ", 0
 msg_detect_sides:
 		.byte "AUTODETECTING SIDES: ",0
 msg_bad_blocks:	.byte " BAD BLOCK"
-msg_bb_plural:	.byte "S", CR, CR, 0
+msg_bb_plural:	.byte "S", CR, 0
 msg_aborted:	.byte CR, "ABORTED", CR, 0
 msg_appending:	.byte CR, "APPENDING ERROR TABLE... ",0
 msg_ok:		.byte "OK", CR, 0
@@ -804,6 +880,10 @@ msg_gin:	.byte "SCANNING FILENAMES", 0
 msg_gin_failed:	.byte "UNABLE TO DETERMINE IMAGE NAME", CR, 0
 msg_writing_to:	.byte "WRITING TO ", 0
 
+msg_set_d64:	.byte "SET D64", CR, 0
+msg_set_d80:	.byte "SET D80", CR, 0
+msg_set_d82:	.byte "SET D82", CR, 0
+
 str_ok:		.byte "00,"
 
 cmd_bp20:	.byte "B-P 2 0",0
@@ -812,7 +892,7 @@ cmd_mr:		.byte "M-R", $03, $11, 0
 
 
 ;--------------------------------------------------------------------------
-; VARIABLES
+; VARIABLES IN PRG
 ;--------------------------------------------------------------------------
 .data
 
@@ -824,15 +904,11 @@ tdrive:		.byte 0		; Source drive 0/1
 retries:	.byte 16	; Number of retries, must be power of 2
 keep_partial:	.byte 1		; keep partial image file on break
 force_errtbl:	.byte 0		; write error table always if non-zero
-bamonly:	.byte 0		; read only allocated blocks
+bamonly:	.byte 1		; read only allocated blocks
 useflpcde:	.byte 1		; read with floppy code
 autoinc:	.byte 1		; auto-increment image filenames
 sound:		.byte 1		; make noise when image reading completes
 ;--------------------------------------------------------------------------
-
-doubleside:	.byte 1		; flag: disk has data on both sides
-tracks:		.byte 77	; last track
-sectors:	.byte 29	; number of sectors
 
 
 cmd_ix:		.byte "Ix", 0
@@ -841,7 +917,7 @@ cmd_rd_sec:	.byte "M-W"
 		.byte 3
 rd_trk:		.byte 39	; track
 rd_sec:		.byte 1		; sector
-rd_retr:	.byte 5		; retries
+rd_retr:	.byte 8		; retries
 
 .assert CH_BUF < 10, error, "CH_BUF > 9"
 cmd_bp:		.byte "B-P ", CH_BUF+'0', " 0", 0
@@ -860,8 +936,17 @@ str_imagename_end:
 
 flg_again:	.byte 1
 
+doubleside:	.byte 1		; flag: disk has data on both sides
+tracks:		.byte 77	; last track
+sectors:	.byte 29	; number of sectors
+
+;--------------------------------------------------------------------------
+; RAM ONLY VARIABLES
+;--------------------------------------------------------------------------
 .bss
+
 rd_res:		.res 1		; FDC error code
+
 saveA:		.res 1
 saveX:		.res 1
 saveY:		.res 1
@@ -873,6 +958,7 @@ errcnt:		.res 2		; number of bad blocks
 errbuf:		.res 4166	; error table per block
 errbuf_end:
 errbuf_top:	.res 2		; address of last entry+1
+blkchar:	.res 1		; character indicating block status
 
 
 ;--------------------------------------------------------------------------

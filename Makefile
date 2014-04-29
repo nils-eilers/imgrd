@@ -1,8 +1,45 @@
-PRGNAME=imgrd
+PRGNAME:=imgrd
+IMGTYPE?=d64
 
-all:    sanity $(PRGNAME) d64
+INCDIR=inc/
+OBJDIR=obj/
+BINDIR:=bin/
+
+SRC:=$(wildcard *.asm)
+OBJ:=$(addprefix $(OBJDIR),$(SRC:.asm=.o))
+LST:=$(addprefix $(OBJDIR),$(SRC:.asm=.lst))
+INC:=$(wildcard $(INCDIR)*.inc)
+
+all:    sanity $(BINDIR)$(PRGNAME) $(BINDIR)$(PRGNAME).$(IMGTYPE)
+
+debug: AFLAGS+=-DDEBUG
+debug: $(PRGNAME)
+
+$(OBJDIR)%.o: %.asm
+	ca65 -g $(AFLAGS) $< -I $(INCDIR) -l $(addprefix $(OBJDIR),$(subst .asm,.lst,$<)) -o $@
+
+$(BINDIR)$(PRGNAME): $(OBJ)
+	ld65 -Ln $(OBJDIR)$(PRGNAME).lbl -m $(OBJDIR)$(PRGNAME).map -o $@ -C cbmpet_imgrd.cfg $(OBJ)
+	cp $@ i # shortcut
+
+$(BINDIR)$(PRGNAME).$(IMGTYPE): $(BINDIR)$(PRGNAME)
+	# Create empty disk image
+	c1541 -format "$(PRGNAME),ne" $(IMGTYPE) $@ 8 
+	# Copy prg to disk image
+	c1541 -attach $@ -write $<
+
+zip:	$(BINDIR)$(PRGNAME).$(IMGTYPE)
+	zip $(PRGNAME).zip Makefile cbmpet_imgrd.cfg $(BINDIR)$(PRGNAME) $(BINDIR)$(PRGNAME).$(IMGTYPE) $(SRC) $(INC)
+
+clean:
+	rm -f $(OBJ) $(LST) $(OBJDIR)$(PRGNAME).map $(OBJDIR)$(PRGNAME).lbl
+
+veryclean:	clean
+	rm -f $(BINDIR)$(PRGNAME) i $(PRGNAME).zip
+	rm -f $(BINDIR)$(PRGNAME).d64 $(BINDIR)$(PRGNAME).d80 $(BINDIR)$(PRGNAME).d82
 
 sanity:
+	mkdir -p $(OBJDIR)
 	printf "Checking requirements... "
 	# Check all requiremens before doing anything
 	rm -f error.log
@@ -33,41 +70,6 @@ sanity:
 		printf "OK\\n" ; \
 	fi
 
-.SILENT:	sanity x
 
-SRC:=$(wildcard *.asm)
-OBJ:=$(SRC:.asm=.o)
-LST:=$(SRC:.asm=.lst)
-INC:=$(wildcard *.inc)
-
-debug: AFLAGS+=-DDEBUG
-debug: $(PRGNAME)
-
-%.o: %.asm
-	ca65 -g $(AFLAGS) $< -l $(subst .asm,.lst,$<) -o $@
-
-$(PRGNAME): $(OBJ)
-	ld65 -Ln $@.lbl -m $@.map -o $@ -C cbmpet_imgrd.cfg $(OBJ)
-	cp $@ i # shortcut
-
-d64:	$(PRGNAME)
-	# Create empty disk image
-	c1541 -format "$(PRGNAME),ne" d64 $(PRGNAME).d64 8 
-	# Copy prg to disk image
-	c1541 -attach $(PRGNAME).d64 -write $(PRGNAME)
-
-zip:	$(PRGNAME) d64
-	zip $(PRGNAME).zip Makefile $(PRGNAME) *.d64 *.inc *.asm
-
-clean:
-	rm -f $(OBJ) $(LST) $(PRGNAME).map $(PRGNAME).lbl
-
-veryclean:	clean
-	rm -f $(PRGNAME) i $(PRGNAME).zip $(PRGNAME).d64 $(PRGNAME).lbl $(PRGNAME).map
-
-.PHONY:	sanity clean veryclean $(PRGNAME)
-
-x:
-	printf SRC: $(SRC)
-	printf OBJ: $(OBJ)
-   
+.PHONY: sanity clean veryclean $(PRGNAME)
+.SILENT: sanity

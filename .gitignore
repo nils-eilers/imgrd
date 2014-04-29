@@ -4,3 +4,4 @@
 *.lbl
 i
 disk-*.d??
+obj/
