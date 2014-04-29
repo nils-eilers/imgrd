@@ -15,7 +15,7 @@ all:    sanity $(BINDIR)$(PRGNAME) $(BINDIR)$(PRGNAME).$(IMGTYPE)
 debug: AFLAGS+=-DDEBUG
 debug: $(PRGNAME)
 
-$(OBJDIR)%.o: %.asm
+$(OBJDIR)%.o: %.asm $(INC)
 	ca65 -g $(AFLAGS) $< -I $(INCDIR) -l $(addprefix $(OBJDIR),$(subst .asm,.lst,$<)) -o $@
 
 $(BINDIR)$(PRGNAME): $(OBJ)
