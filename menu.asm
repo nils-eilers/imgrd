@@ -8,7 +8,7 @@
 	.importzp ptr, DN
 
 	.import sunit, sdrive, tunit, tdrive, retries
-	.import keep_partial, force_errtbl, bamonly, useflpcde
+	.import keep_partial, write_errtbl, bamonly, useflpcde
 	.import autoinc, sound
 	.import catalog, str_catdrv
 
@@ -37,6 +37,12 @@
 	force_d80
 	force_d82
 	end_of_table
+.endenum
+
+.enum append_error_table
+	always
+	on_errors
+	never
 .endenum
 
 menu:
@@ -83,9 +89,13 @@ mn51:
 
 mn52:	cmp #'T'			; T --> append error table
 	bne mn53
-	ldxa force_errtbl
-	jsr toggle
-	jsr prerrtbl
+	inc write_errtbl
+	lda write_errtbl
+	cmp #3
+	bne mn52b
+	lda #0
+	sta write_errtbl
+mn52b:	jsr prerrtbl
 	jmp waituser
 
 mn53:	cmp #'M'			; M --> read method
@@ -279,12 +289,19 @@ prbo10:	jsr STROUTZ
 
 prerrtbl:
 	gotoxy 20, 14			; append error table
-	ldx force_errtbl
-	beq prer10
-	print msg_always
-	ldx #8
-	jsr_rts spaces
-prer10:	lday msg_on_err
+	ldx #14
+	jsr spaces
+	gotoxy 20, 14
+	ldx write_errtbl
+	cpx #append_error_table::always
+	bne prer10
+	lday msg_always
+	jsr_rts STROUTZ
+prer10:	cpx #append_error_table::on_errors
+	bne prer20
+       	lday msg_on_err
+	jsr_rts STROUTZ
+prer20:	lday msg_never
 	jsr_rts STROUTZ
 
 prflpcde:
@@ -381,8 +398,7 @@ prs10:	lda #'N'
 	
 .rodata
 ;                     ....:....1....:....2....:....3....:....4
-msg_menuleft:	.byte CLRHOME, "IMGRD 0.0430 PRE-ALPHA", CR
-		.byte CR
+msg_menuleft:	.byte CLRHOME, "IMGRD 0.2   2014,2025 FOR(;;)", CR, CR
 		.byte "READ", CR
 		.byte CR
 		.byte RVSON, "U", RVSOFF, "NIT", CR
@@ -426,6 +442,7 @@ msg_only_allc:	.byte "ONLY", CR, "ALLOCATED ", 0
 msg_blocks:	.byte RVSON, "B", RVSOFF, "LOCKS", 0
 msg_on_err:	.byte "ON ERRORS ONLY", 0
 msg_always:	.byte "ALWAYS", 0
+msg_never:	.byte "NEVER", 0
 msg_kernal:	.byte "KERNAL", 0
 msg_flpcde:	.byte "FLOPPY CODE", 0
 msg_keep:	.byte "KEEP", 0

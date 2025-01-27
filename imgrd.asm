@@ -35,8 +35,15 @@
 	; menu settings
 	.import menu
 	.export sunit, sdrive, tunit, tdrive, retries, autoinc
-	.export keep_partial, force_errtbl, bamonly, useflpcde
+	.export keep_partial, write_errtbl, bamonly, useflpcde
 	.export sound
+
+.enum append_error_table
+	always
+	on_errors
+	never
+.endenum
+
 
 ; ---------- CHANNELS / SECONDARY ADDRESSES -------------------------------
 
@@ -242,8 +249,13 @@ image_complete:
 	jsr print_bad_blocks
 	jsr CRLF
 
-	lda force_errtbl
-	bne @appnd
+	lda write_errtbl
+	cmp #append_error_table::never
+	beq @exit
+
+	cmp #append_error_table::always
+	beq @appnd
+
 	lda errcnt
 	ora errcnt+1
 	beq @exit
@@ -913,7 +925,7 @@ tunit:		.byte 9		; Target unit address
 tdrive:		.byte 0		; Source drive 0/1
 retries:	.byte 16	; Number of retries, must be power of 2
 keep_partial:	.byte 1		; keep partial image file on break
-force_errtbl:	.byte 0		; write error table always if non-zero
+write_errtbl:	.byte 1         ; when to append error table
 bamonly:	.byte 1		; read only allocated blocks
 useflpcde:	.byte 1		; read with floppy code
 autoinc:	.byte 1		; auto-increment image filenames
